@@ -34,8 +34,8 @@ func checkOrigin(r *http.Request) bool {
 	switch origin {
 	case "https://localhost:8080":
 		return true
-	case "wss://localhost:8080":
-		return true
+	// case "wss://localhost:8080":
+	// 	return true
 
 	default:
 		return false
