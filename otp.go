@@ -14,7 +14,7 @@ type OTP struct {
 
 type RetentionMap map[string]OTP
 
-// NewRetentionMap will create a new retentionmap and start the retention given the set period
+// NewRetentionMap creará un nuevo mapa de retención e iniciará la retención dado el período establecido
 func NewRetentionMap(ctx context.Context, retentionPeriod time.Duration) RetentionMap {
 	rm := make(RetentionMap)
 
@@ -23,7 +23,7 @@ func NewRetentionMap(ctx context.Context, retentionPeriod time.Duration) Retenti
 	return rm
 }
 
-// NewOTP creates and adds a new otp to the map
+// NewOTP crea y agrega un nuevo otp al mapa
 func (rm RetentionMap) NewOTP() OTP {
 	o := OTP{
 		Key:     uuid.NewString(),
@@ -34,28 +34,27 @@ func (rm RetentionMap) NewOTP() OTP {
 	return o
 }
 
-// VerifyOTP will make sure a OTP exists
-// and return true if so
-// It will also delete the key so it cant be reused
+// VerifyOTP se asegurará de que exista una OTP y devolverá verdadero si es así
+// También eliminará la clave para que no pueda ser reutilizada.
 func (rm RetentionMap) VerifyOTP(otp string) bool {
-	// Verify OTP is existing
+	// Verificar que OTP exista
 	if _, ok := rm[otp]; !ok {
-		// otp does not exist
+		// otp no existe
 		return false
 	}
 	delete(rm, otp)
 	return true
 }
 
-// Retention will make sure old OTPs are removed
-// Is Blocking, so run as a Goroutine
+// La retención asegurará que se eliminen las OTP antiguas
+// Está rutina bloquea, así que ejecutar como una goroutine
 func (rm RetentionMap) Retention(ctx context.Context, retentionPeriod time.Duration) {
 	ticker := time.NewTicker(400 * time.Millisecond)
 	for {
 		select {
 		case <-ticker.C:
 			for _, otp := range rm {
-				// Add Retention to Created and check if it is expired
+				// Añadir retención a Created y comprueba si ha caducado
 				if otp.Created.Add(retentionPeriod).Before(time.Now()) {
 					delete(rm, otp.Key)
 				}

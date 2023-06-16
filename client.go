@@ -9,30 +9,30 @@ import (
 )
 
 var (
-	// pongWait is how long we will await a pong response from client
+	// pongWait es el tiempo que esperaremos una respuesta pong del cliente
 	pongWait = 10 * time.Second
-	// pingInterval has to be less than pongWait, We cant multiply by 0.9 to get 90% of time
-	// Because that can make decimals, so instead *9 / 10 to get 90%
-	// The reason why it has to be less than PingRequency is becuase otherwise it will send a new Ping before getting response
+	// pingInterval tiene que ser menor que pongEspera, no podemos multiplicar por 0.9 para obtener el 90% del tiempo
+	// porque eso puede hacer decimales, así que en su lugar *9/10 para obtener 90%
+	// La razón por la que tiene que ser menor que PingRequency es porque, de lo contrario, enviará un nuevo Ping antes de obtener una respuesta.
 	pingInterval = (pongWait * 9) / 10
 )
 
-// ClientList is a map used to help manage a map of clients
+// ClientList es un mapa utilizado para ayudar a administrar un mapa de clientes
 type ClientList map[*Client]bool
 
-// Client is a websocket client, basically a frontend visitor
+// Client es un cliente websocket, básicamente un visitante frontend
 type Client struct {
-	// the websocket connection
+	// La conexión websocket
 	connection *websocket.Conn
-	// manager is the manager used to manage the client
+	// manager es el administrador utilizado para administrar el cliente
 	manager *Manager
-	// egress is used to avoid concurrent writes on the WebSocket
+	// egress se usa para evitar escrituras simultáneas en el WebSocket
 	egress chan Event
-	// chatroom is used to know what room user is in
+	// chatroom se utiliza para saber en qué sala está el usuario
 	chatroom string
 }
 
-// NewClient is used to initialize a new Client with all required values initialized
+// NewClient se usa para inicializar un nuevo Cliente con todos los valores requeridos inicializados
 func NewClient(conn *websocket.Conn, manager *Manager) *Client {
 	return &Client{
 		connection: conn,
@@ -41,98 +41,89 @@ func NewClient(conn *websocket.Conn, manager *Manager) *Client {
 	}
 }
 
-// readMessages will start the client to read messages and handle them
-// appropriatly.
-// This is suppose to be ran as a goroutine
+// readMessages iniciará el cliente para leer mensajes y manejarlos apropiadamente.
+// Se supone que esto debe ejecutarse como una gorutina
 func (c *Client) readMessages() {
 	defer func() {
-		// Graceful Close the Connection once this
-		// function is done
+		// Cierra la conexión una ver que termina esta función
 		c.manager.removeClient(c)
 	}()
 
-	// Set Max Size of Messages in Bytes
+	// Se Establece el tamaño máximo de los mensajes en bytes
 	c.connection.SetReadLimit(512)
-	// Configure Wait time for Pong response, use Current time + pongWait
-	// This has to be done here to set the first initial timer.
+	// Configure el tiempo de espera para la respuesta Pong, use la hora actual + pongWait
+	// Esto debe hacerse aquí para configurar el primer temporizador inicial.
 	if err := c.connection.SetReadDeadline(time.Now().Add(pongWait)); err != nil {
 		log.Println(err)
 		return
 	}
-	// Configure how to handle Pong responses
+	// Configurar cómo manejar las respuestas Pong
 	c.connection.SetPongHandler(c.pongHandler)
 
-	// Loop Forever
+	// Ciclo infinito
 	for {
-		// ReadMessage is used to read the next message in queue
-		// in the connection
+		// ReadMessage se usa para leer el siguiente mensaje en cola en la conexión
 		_, payload, err := c.connection.ReadMessage()
 
 		if err != nil {
-			// If Connection is closed, we will Recieve an error here
-			// We only want to log Strange errors, but not simple Disconnection
+			// Si la conexión está cerrada, recibiremos un error aquí
+			// Solo queremos registrar errores extraños, pero no una simple desconexión
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("error reading message: %v", err)
+				log.Printf("error leyendo mensaje: %v", err)
 			}
-			break // Break the loop to close conn & Cleanup
+			break // Rompe el ciclo para cerrar conn & Cleanup
 		}
-		// Marshal incoming data into a Event struct
+		// Ordena los datos entrantes en una estructura de evento
 		var request Event
 		if err := json.Unmarshal(payload, &request); err != nil {
-			log.Printf("error marshalling message: %v", err)
-			break // Breaking the connection here might be harsh xD
+			log.Printf("error clasificando mensaje: %v", err)
+			//break // Romper la conexión aquí puede ser duro xD
+		} else {
+			// Enruta el evento
+			if err := c.manager.routeEvent(request, c); err != nil {
+				log.Println("Error ruteando mensaje: ", err)
+			}
 		}
-		// Route the Event
-		if err := c.manager.routeEvent(request, c); err != nil {
-			log.Println("Error handeling Message: ", err)
-		}
-
-		// Hack to test that WriteMessages works as intended
-		// Will be replaced soon
-		// for wsclient := range c.manager.clients {
-		// 	wsclient.egress <- request
-		// }
-
 	}
 }
 
-// pongHandler is used to handle PongMessages for the Client
+// pongHandler se usa para manejar PongMessages para el Cliente
 func (c *Client) pongHandler(pongMsg string) error {
 	// Current time + Pong Wait time
 	//log.Println("pong")
 	return c.connection.SetReadDeadline(time.Now().Add(pongWait))
 }
 
-// writeMessages is a process that listens for new messages to output to the Client
+// writeMessages es un proceso que escucha nuevos mensajes para enviarlos al Cliente
 func (c *Client) writeMessages() {
-	// Create a ticker that triggers a ping at given interval
+	// Crea un ticker que activa un ping en un intervalo dado
 	ticker := time.NewTicker(pingInterval)
 	defer func() {
 		ticker.Stop()
-		// Graceful close if this triggers a closing
+		// Cierre elegante si esto desencadena un cierre
 		c.manager.removeClient(c)
 	}()
 
-	// Loop Forever
+	// Ciclo infinito
 	for {
 		select {
 		case message, ok := <-c.egress:
-			// Ok will be false Incase the egress channel is closed
+			// Ok será falso en caso de que el canal de salida esté cerrado
 			if !ok {
-				// Manager has closed this connection channel, so communicate that to frontend
+				// El administrador ha cerrado este canal de conexión, así que comunique eso a la interfaz
 				if err := c.connection.WriteMessage(websocket.CloseMessage, nil); err != nil {
-					// Log that the connection is closed and the reason
-					log.Println("connection closed: ", err)
+					// Registrar que la conexión está cerrada y el motivo
+					log.Println("conexión cerrada: ", err)
 				}
-				// Return to close the goroutine
+				// Regresar para cerrar la gorutina
 				return
 			}
 			data, err := json.Marshal(message)
 			if err != nil {
 				log.Println(err)
-				return // closes the connection, should we really
+				return // cierra la conexión, ¿deberíamos realmente?
 			}
-			// Write a Regular text message to the connection
+			// Escribir un mensaje de texto normal a la conexión
 			if err := c.connection.WriteMessage(websocket.TextMessage, data); err != nil {
 				log.Println(err)
 			}
@@ -140,10 +131,10 @@ func (c *Client) writeMessages() {
 
 		case <-ticker.C:
 			//log.Println("ping")
-			// Send the Ping
+			// Enviar el ping
 			if err := c.connection.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
 				log.Println("writemsg: ", err)
-				return // return to break this goroutine triggeing cleanup
+				return // volver para interrumpir con limpieza de activación de goroutine
 			}
 		}
 	}

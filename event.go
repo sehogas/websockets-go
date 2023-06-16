@@ -7,49 +7,46 @@ import (
 )
 
 const (
-	// EventSendMessage is the event name for new chat messages sent
+	// EventSendMessage es el nombre del evento para los nuevos mensajes de chat enviados
 	EventSendMessage = "send_message"
-	// EventNewMessage is a response to send_message
+	// EventNewMessage es una respuesta a send_message
 	EventNewMessage = "new_message"
-	// EventChangeRoom is event when switching rooms
+	// EventChangeRoom es el evento al cambiar de sala
 	EventChangeRoom = "change_room"
 )
 
-// Event is the Messages sent over the websocket
-// Used to differ between different actions
+// El evento son los mensajes enviados a través del websocket
+// Usado para diferenciar entre diferentes acciones
 type Event struct {
-	// Type is the message type sent
+	// Type es el tipo de mensaje enviado
 	Type string `json:"type"`
-	// Payload is the data Based on the Type
+	// Payload son los datos basados en el tipo
 	Payload json.RawMessage `json:"payload"`
 }
 
-// EventHandler is a function signature that is used to affect messages on the socket and triggered
-// depending on the type
+// EventHandler es una firma de función que se usa para afectar los mensajes en el socket y se activa según el tipo
 type EventHandler func(event Event, c *Client) error
 
-// SendMessageEvent is the payload sent in the
-// send_message event
+// SendMessageEvent es el payload enviado en el evento send_message
 type SendMessageEvent struct {
 	Message string `json:"message"`
 	From    string `json:"from"`
 }
 
-// NewMessageEvent is returned when responding to send_message
+// NewMessageEvent se devuelve al responder a send_message
 type NewMessageEvent struct {
 	SendMessageEvent
 	Sent time.Time `json:"sent"`
 }
 
-// SendMessageHandler will send out a message to all other participants in the chat
+// SendMessageHandler enviará un mensaje a todos los demás participantes en el chat
 func SendMessageHandler(event Event, c *Client) error {
-	// Marshal Payload into wanted format
 	var chatevent SendMessageEvent
 	if err := json.Unmarshal(event.Payload, &chatevent); err != nil {
 		return fmt.Errorf("bad payload in request: %v", err)
 	}
 
-	// Prepare an Outgoing Message to others
+	// Preparar un mensaje saliente para otros
 	var broadMessage NewMessageEvent
 
 	broadMessage.Sent = time.Now()
@@ -61,13 +58,13 @@ func SendMessageHandler(event Event, c *Client) error {
 		return fmt.Errorf("failed to marshal broadcast message: %v", err)
 	}
 
-	// Place payload into an Event
+	// Coloca Payload en un evento
 	var outgoingEvent Event
 	outgoingEvent.Payload = data
 	outgoingEvent.Type = EventNewMessage
-	// Broadcast to all other Clients
+	// Transmisión a todos los demás clientes
 	for client := range c.manager.clients {
-		// Only send to clients inside the same chatroom
+		// Enviar solo a clientes dentro de la misma sala de chat
 		if client.chatroom == c.chatroom {
 			client.egress <- outgoingEvent
 		}
@@ -80,7 +77,7 @@ type ChangeRoomEvent struct {
 	Name string `json:"name"`
 }
 
-// ChatRoomHandler will handle switching of chatrooms between clients
+// ChatRoomHandler manejará el cambio de salas de chat entre clientes
 func ChatRoomHandler(event Event, c *Client) error {
 	// Marshal Payload into wanted format
 	var changeRoomEvent ChangeRoomEvent
@@ -88,7 +85,7 @@ func ChatRoomHandler(event Event, c *Client) error {
 		return fmt.Errorf("bad payload in request: %v", err)
 	}
 
-	// Add Client to chat room
+	// Agregar cliente a la sala de chat
 	c.chatroom = changeRoomEvent.Name
 
 	return nil
